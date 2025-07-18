@@ -1,6 +1,3 @@
-
--1
-
 # nebctl
 
 `nebctl` is a command line helper that wraps a collection of small scripts for day to day Nebius Platform operations.  It provides a single entry point to common tasks such as listing resources or connecting to a Kubernetes cluster.
@@ -26,10 +23,7 @@ Run the `install` script from this repository to install `nebctl` locally:
 The script verifies your Python version, installs required tools, and symlinks
 `nebctl` into `~/.local/bin`. Ensure that `~/.local/bin` is on your `PATH` so the
 command is discoverable.
-
-Verify the installation:
-
-```bash
+@@ -33,26 +30,43 @@ Verify the installation:
 nebctl --version
 ```
 
@@ -56,3 +50,18 @@ Use `nebctl --help` to view a detailed help message with all flags and examples.
 ## Examples
 
 List instances in a project:
+
+```bash
+nebctl get instance --project-id <project-id>
+```
+
+Describe a compute instance:
+
+```bash
+nebctl describe instance <instance-id>
+```
+
+Connect to a managed Kubernetes cluster:
+
+```bash
+nebctl connect cluster <cluster-id>
