@@ -1,71 +1,66 @@
 #!/usr/bin/env python3
 
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
-USAGE = """\
-Usage: nebctl update
-
-Description:
-  Pulls the latest updates from the main branch of the nebctl repository,
-  force-overwriting local changes if needed, and reruns the installer script.
-"""
-
-REPO_URL = "git@github.com:Automatare/nebctl.git"
+REPO_URL = "https://github.com/Automatare/nebctl.git"
 INSTALL_DIR = Path.home() / ".nebctl"
+TMP_PARENT = Path(tempfile.gettempdir())
 
-def run(cmd, cwd=None, check=True):
-    return subprocess.run(cmd, cwd=cwd, check=check)
 
-def main():
-    if len(sys.argv) != 1:
-        print(USAGE)
+def print_step(msg):
+    print(f"\n{msg}")
+
+
+def run(cmd, cwd=None):
+    result = subprocess.run(cmd, shell=True, cwd=cwd)
+    if result.returncode != 0:
+        print(f"Command failed: {cmd}")
         sys.exit(1)
 
-    try:
-        repo_root = INSTALL_DIR.resolve()
-        print(f"📍 Using install directory: {repo_root}")
 
-        if not repo_root.exists():
-            print(f"❌ Install directory {repo_root} does not exist!", file=sys.stderr)
-            sys.exit(1)
+def clone_to_temp():
+    tmp_dir = TMP_PARENT / "nebctl-update-temp"
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    run(f"git clone {REPO_URL} {tmp_dir}")
+    return tmp_dir
 
-        # Initialize Git if needed
-        if not (repo_root / ".git").exists():
-            print("🔧 Initializing git repository...")
-            run(["git", "init"], cwd=repo_root)
 
-        # Set origin if not set
-        result = subprocess.run(["git", "remote", "get-url", "origin"],
-                                cwd=repo_root,
-                                stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL)
-        if result.returncode != 0:
-            print(f"🔗 Setting remote origin to {REPO_URL}...")
-            run(["git", "remote", "add", "origin", REPO_URL], cwd=repo_root)
-        else:
-            print("✅ Remote origin already set.")
+def replace_existing_install(tmp_dir):
+    print_step(f"Removing existing installation at {INSTALL_DIR}")
+    if INSTALL_DIR.exists():
+        shutil.rmtree(INSTALL_DIR)
 
-        # Fetch and hard reset to main
-        print("📥 Fetching and resetting to latest main...")
-        run(["git", "fetch", "origin"], cwd=repo_root)
-        run(["git", "reset", "--hard", "origin/main"], cwd=repo_root)
+    print_step(f"Moving updated version to {INSTALL_DIR}")
+    shutil.move(str(tmp_dir), str(INSTALL_DIR))
 
-        # Run install script
-        install_script = repo_root / "install"
-        if not install_script.exists():
-            print("❌ install script not found!", file=sys.stderr)
-            sys.exit(1)
 
-        print("🚀 Running installer...")
-        run([str(install_script)], cwd=repo_root)
+def run_post_install():
+    post_script = INSTALL_DIR / "install"
+    if post_script.exists():
+        print_step("Running post-installation script...")
+        run(f'{sys.executable} "{post_script}"')
+    else:
+        print("No post-install script found. Skipping.")
 
-        print("✅ Update completed successfully.")
 
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Error during update: {e}", file=sys.stderr)
-        sys.exit(e.returncode)
+def main():
+    script_path = Path(__file__).resolve()
+    parent_dir = script_path.parent.parent
+    global INSTALL_DIR
+    INSTALL_DIR = parent_dir.resolve()
+
+    print("Starting safe update of nebctl...")
+    tmp_dir = clone_to_temp()
+    replace_existing_install(tmp_dir)
+    run_post_install()
+    print("nebctl updated successfully. You may now run 'nebctl --version'")
+
 
 if __name__ == "__main__":
     main()
