@@ -1,4 +1,4 @@
-$repoUrl = "https://github.com/your-org/nebctl.git"
+$repoUrl = "https://github.com/ooluwgb/nebctl.git"
 $installDir = "$env:USERPROFILE\.nebctl"
 $binDir = "$env:USERPROFILE\AppData\Local\Microsoft\WindowsApps"
 $entryScript = "nebctl\nebctl.py"
