@@ -108,6 +108,7 @@ function clone_or_update_repo() {
 
 function create_symlink() {
     mkdir -p "$BIN_DIR"
+    chmod +x "$INSTALL_DIR/nebctl/nebctl"
     ln -sf "$INSTALL_DIR/nebctl/nebctl" "$NEBCTL_BIN"
     echo "Linked $NEBCTL_BIN"
 
