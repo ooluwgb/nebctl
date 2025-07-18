@@ -1,4 +1,4 @@
- #!/usr/bin/env python3
+#!/usr/bin/env python3
 
 import shutil
 import subprocess
@@ -14,16 +14,17 @@ def print_step(msg):
     print(f"\n{msg}")
 
 def run(cmd, cwd=None):
-    result = subprocess.run(cmd, shell=True, cwd=cwd)
+    """Run a subprocess command and exit on failure."""
+    result = subprocess.run(cmd, cwd=cwd)
     if result.returncode != 0:
-        print(f"Command failed: {cmd}")
+        print(f"Command failed: {' '.join(cmd)}")
         sys.exit(1)
 
 def clone_to_temp():
     tmp_dir = TMP_PARENT / "nebctl-update-temp"
     if tmp_dir.exists():
         shutil.rmtree(tmp_dir)
-    run(f"git clone {REPO_URL} {tmp_dir}")
+    run(["git", "clone", REPO_URL, str(tmp_dir)])
     return tmp_dir
 
 def replace_existing_install(tmp_dir):
@@ -37,7 +38,7 @@ def run_post_install():
     post_script = INSTALL_DIR / "install"
     if post_script.exists():
         print_step("Running post-installation script...")
-        run(f'"{sys.executable}" "{post_script}"')
+        run([sys.executable, str(post_script)])
     else:
         print("No post-install script found. Skipping.")
 
