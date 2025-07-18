@@ -1,7 +1,7 @@
 $repoUrl = "https://github.com/ooluwgb/nebctl.git"
 $installDir = "$env:USERPROFILE\.nebctl"
 $binDir = "$env:USERPROFILE\AppData\Local\Microsoft\WindowsApps"
-$entryScript = "nebctl\nebctl.py"
+$entryScript = "nebctl"  # Updated from nebctl\nebctl.py
 $shimPath = "$binDir\nebctl.cmd"
 
 function Print-Step($msg) {
