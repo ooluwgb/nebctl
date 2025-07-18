@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-REPO_URL="https://github.com/your-org/nebctl.git"
+REPO_URL="https://github.com/your-org/nebctl"
 INSTALL_DIR="$HOME/.nebctl"
 BIN_DIR="$HOME/.local/bin"
 NEBCTL_BIN="$BIN_DIR/nebctl"
