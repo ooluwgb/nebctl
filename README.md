@@ -8,8 +8,8 @@ The scripts expect the following external tools to be installed and available in
 
 * [`npc`](https://docs.nebius.dev/en/cli/) – Nebius platform CLI
 * [`kubectl`](https://kubernetes.io/docs/tasks/tools/) – for managing Kubernetes clusters
+* `python3` (version **3.8 or higher**) – required to run the core CLI tool
 
-`nebctl` itself is a Python script and requires **Python 3.8+**.
 Make sure `~/.local/bin` is in your `PATH` so the installed command is found.
 
 ## Installation
