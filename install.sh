@@ -7,11 +7,11 @@ INSTALL_DIR="$HOME/.nebctl"
 BIN_DIR="$HOME/.local/bin"
 NEBCTL_BIN="$BIN_DIR/nebctl"
 
-function print_step() {
+print_step() {
     echo -e "\n$1"
 }
 
-function find_any_python() {
+find_any_python() {
     for py in python3 python python2; do
         if command -v "$py" >/dev/null 2>&1; then
             echo "$py"
@@ -21,15 +21,15 @@ function find_any_python() {
     echo ""
 }
 
-function get_python_version() {
+get_python_version() {
     "$1" -c 'import sys; print(".".join(map(str, sys.version_info[:2])))'
 }
 
-function version_ge() {
+version_ge() {
     [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
 }
 
-function detect_distro() {
+detect_distro() {
     if [[ "$(uname)" == "Darwin" ]]; then
         echo "macos"
     elif [[ -f /etc/os-release ]]; then
@@ -40,7 +40,7 @@ function detect_distro() {
     fi
 }
 
-function install_python3_for_env() {
+install_python3_for_env() {
     DISTRO=$(detect_distro)
     print_step "Installing Python 3 for $DISTRO..."
 
@@ -70,7 +70,7 @@ function install_python3_for_env() {
     esac
 }
 
-function ensure_python_ready() {
+ensure_python_ready() {
     PY_CMD=$(find_any_python)
 
     if [[ -z "$PY_CMD" ]]; then
@@ -96,7 +96,7 @@ function ensure_python_ready() {
     echo "$PY_CMD"
 }
 
-function clone_or_update_repo() {
+clone_or_update_repo() {
     if [[ -d "$INSTALL_DIR/.git" ]]; then
         print_step "Updating existing nebctl installation..."
         git -C "$INSTALL_DIR" pull
@@ -106,10 +106,10 @@ function clone_or_update_repo() {
     fi
 }
 
-function create_symlink() {
+create_symlink() {
     mkdir -p "$BIN_DIR"
-    chmod +x "$INSTALL_DIR/nebctl/nebctl"
-    ln -sf "$INSTALL_DIR/nebctl/nebctl" "$NEBCTL_BIN"
+    chmod +x "$INSTALL_DIR/nebctl"
+    ln -sf "$INSTALL_DIR/nebctl" "$NEBCTL_BIN"
     echo "Linked $NEBCTL_BIN"
 
     if command -v sudo >/dev/null 2>&1 && { [[ -w /usr/local/bin ]] || [[ "$(id -u)" -eq 0 ]]; }; then
@@ -129,7 +129,7 @@ function create_symlink() {
     done
 }
 
-function install_kubectl() {
+install_kubectl() {
     if command -v kubectl >/dev/null 2>&1; then
         echo "kubectl already installed"
         return
@@ -151,7 +151,7 @@ function install_kubectl() {
             sudo yum install -y curl
             curl -LO "https://s3.us-west-2.amazonaws.com/amazon-eks/1.27.3/2023-09-14/bin/linux/amd64/kubectl"
             chmod +x kubectl
-            sudo mv kubectl /usr/local/bin/
+            sudo mv kubectl /usr/local/bin/kubectl
             ;;
         fedora|centos|rhel)
             sudo dnf install -y kubectl || sudo yum install -y kubectl
@@ -169,7 +169,7 @@ function install_kubectl() {
     esac
 }
 
-function install_npc() {
+install_npc() {
     if command -v npc >/dev/null 2>&1; then
         echo "npc already installed"
     else
@@ -178,7 +178,7 @@ function install_npc() {
     fi
 }
 
-function check_prod_sa() {
+check_prod_sa() {
     if [[ ! -f "$HOME/.config/nebctl/profiles/prod-sa.yaml" ]]; then
         read -r -p "prod-sa profile not found. Would you like to set it up? [Y/n]: " choice
         if [[ "$choice" =~ ^[Yy]$ || -z "$choice" ]]; then
@@ -189,13 +189,13 @@ function check_prod_sa() {
     fi
 }
 
-function install_requirements() {
+install_requirements() {
     if [[ -f "$INSTALL_DIR/requirements.txt" ]]; then
         python3 -m pip install --user -r "$INSTALL_DIR/requirements.txt"
     fi
 }
 
-function main() {
+main() {
     PY_CMD=$(ensure_python_ready)
     clone_or_update_repo
     create_symlink
