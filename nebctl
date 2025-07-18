@@ -4,7 +4,6 @@ import sys
 import os
 import subprocess
 from pathlib import Path
-import argparse
 
 VALID_ACTIONS = {"get", "describe", "connect", "search", "update"}
 
@@ -73,6 +72,13 @@ def main():
         if not help_script.exists() or not os.access(help_script, os.X_OK):
             error_exit("Help script (get_help) not found or not executable.")
         run_script(help_script, [])
+        return
+
+    if args == ["--version"]:
+        version_script = scripts_dir / "version"
+        if not version_script.exists() or not os.access(version_script, os.X_OK):
+            error_exit("Version script not found or not executable.")
+        run_script(version_script, [])
         return
 
     if args[0] == "update":
