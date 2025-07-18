@@ -1,0 +1,114 @@
+#!/bin/bash
+
+set -euo pipefail
+
+PROFILE="prod-sa"
+
+function usage() {
+  echo "Usage: nebctl get cluster -n <project-id|tenant-id> [--profile <profile>]"
+}
+
+function unknown_flag() {
+  echo "Unknown flag: $1"
+  usage
+  exit 1
+}
+
+function region_from_id() {
+  prefix=${1:8:3}
+  case "$prefix" in
+    e00) echo "eu-north1" ;;
+    e02) echo "eu-north2" ;;
+    e01) echo "eu-west1" ;;
+    u00) echo "us-central1" ;;
+    *) echo "unknown" ;;
+  esac
+}
+
+if [[ "$#" -eq 1 && "$1" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+PARENT_ID=""
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -n)
+      shift
+      if [[ "$#" -eq 0 ]]; then usage; exit 1; fi
+      PARENT_ID="$1"
+      ;;
+    --profile)
+      shift
+      if [[ "$#" -eq 0 ]]; then usage; exit 1; fi
+      PROFILE="$1"
+      ;;
+    -*)
+      unknown_flag "$1"
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+if [[ -z "$PARENT_ID" ]]; then
+  usage
+  exit 1
+fi
+
+printf "%-30s %-40s %-10s %-40s %-12s\n" "ClusterName" "ClusterID" "STATE" "ProjectID" "Region"
+
+function list_clusters_for_project() {
+  local project_id="$1"
+  local region
+  region=$(region_from_id "$project_id")
+  local ctoken=""
+
+  while : ; do
+    if [[ -n "$ctoken" ]]; then
+      cout=$(npc --profile "$PROFILE" mk8s cluster list --parent-id "$project_id" --format yaml --page-token "$ctoken")
+    else
+      cout=$(npc --profile "$PROFILE" mk8s cluster list --parent-id "$project_id" --format yaml)
+    fi
+
+    echo "$cout" | yq -r --arg project "$project_id" --arg region "$region" \
+      '.items[]? | [ .metadata.name, .metadata.id, .status.state, $project, $region ] | @tsv' |
+    while IFS=$'\t' read -r name id state pid reg; do
+      printf "%-30s %-40s %-10s %-40s %-12s\n" "$name" "$id" "$state" "$pid" "$reg"
+    done
+
+    ctoken=$(echo "$cout" | yq -r '.next_page_token // empty')
+    [[ -z "$ctoken" ]] && break
+  done
+}
+
+if [[ "$PARENT_ID" =~ ^tenant- ]]; then
+  page_token=""
+  while : ; do
+    if [[ -n "$page_token" ]]; then
+      output=$(npc --profile "$PROFILE" iam project list --parent-id "$PARENT_ID" --format yaml --page-token "$page_token")
+    else
+      output=$(npc --profile "$PROFILE" iam project list --parent-id "$PARENT_ID" --format yaml)
+    fi
+
+    echo "$output" | yq -r '.items[]?.metadata.id' | while read -r project_id; do
+      list_clusters_for_project "$project_id"
+    done
+
+    page_token=$(echo "$output" | yq -r '.next_page_token // empty')
+    [[ -z "$page_token" ]] && break
+  done
+
+elif [[ "$PARENT_ID" =~ ^project- ]]; then
+  list_clusters_for_project "$PARENT_ID"
+
+else
+  echo "Invalid ID provided. Must begin with 'tenant-' or 'project-'"
+  usage
+  exit 1
+fi
+
