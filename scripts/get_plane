@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+
+import sys
+import webbrowser
+
+USAGE = """\
+Usage: nebctl get plane <resource-id>
+
+Description:
+  Open the resource in the Plane web interface using its ID.
+  The resource ID must contain a '-' character.
+
+Options:
+  <resource-id>           Required. Must include a '-' character.
+  --help                  Show this usage guide.
+
+Example:
+  nebctl get plane cluster-xyz456
+"""
+
+BASE_URL = "https://plane.nebius.dev"
+
+def print_usage_and_exit():
+    print(USAGE)
+    sys.exit(1)
+
+def error_exit(message):
+    print(f"Error: {message}\n")
+    print_usage_and_exit()
+
+def parse_args(args):
+    """Validate arguments and return the resource ID."""
+    if args == ["get", "plane", "--help"]:
+        print_usage_and_exit()
+
+    if len(args) == 3 and args[:2] == ["get", "plane"]:
+        resource_id = args[2]
+        if "-" not in resource_id:
+            error_exit("Invalid resource-id format. Must contain a '-'.")
+        return resource_id
+
+    error_exit("Invalid syntax.")
+
+def build_url(resource_id):
+    return f"{BASE_URL}/{resource_id}"
+
+def main():
+    try:
+        resource_id = parse_args(sys.argv[1:])
+        url = build_url(resource_id)
+        print(f"Opening: {url}")
+        webbrowser.open(url)
+    except Exception as e:
+        error_exit(str(e))
+
+if __name__ == "__main__":
+    main()

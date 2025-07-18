@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+
+import sys
+
+HELP = """
+Nebctl - Unified CLI for Nebius Platform Operations
+
+USAGE:
+  nebctl <action> <resource> [options]
+
+ACTIONS & RESOURCES:
+  get        instance   - List all compute instances in a project
+              project    - List all projects for a tenant
+              grafana    - Open monitoring dashboards for a compute instance
+              bo         - Open a resource in Backoffice
+              plane      - Open a resource in Plane
+
+  describe   instance   - Show details of a compute instance
+
+  connect    cluster    - Set up local kubectl config for a k8s cluster
+
+  update                 - Pull the latest code and rerun the installer
+
+GENERAL OPTIONS:
+  -h, --help        Show this help message for any command
+
+---------------------------------------------
+COMMAND DETAILS & EXAMPLES:
+
+1. List all instances in a project:
+   nebctl get instance -n <project-id> [--profile <profile>]
+
+   - <project-id> must start with 'project-'
+   - Default profile is 'prod-sa'
+
+2. List all projects for a tenant:
+   nebctl get project -n <tenant-id> [--profile <profile>]
+
+   - <tenant-id> must start with 'tenant-'
+   - Default profile is 'prod-sa'
+
+3. Open monitoring dashboards:
+   nebctl get grafana <instance-id> [--host|--gpu]
+
+   - <instance-id> must start with 'computeinstance-'
+   - --host shows the instance-to-host mapping dashboard
+   - --gpu  shows the GPU/IB monitoring dashboard
+
+4. Open a resource in Backoffice:
+   nebctl get bo <resource-id>
+
+   - <resource-id> must include a '-' character and a valid prefix
+
+5. Open a resource in Plane:
+   nebctl get plane <resource-id>
+
+   - <resource-id> must include a '-' character
+
+6. Show compute instance details:
+   nebctl describe instance <computeinstance-id> [--profile <profile>]
+
+   - <computeinstance-id> must start with 'computeinstance-'
+   - Default profile is 'prod-sa'
+
+7. Connect local kubectl to a k8s cluster:
+   nebctl connect cluster <cluster-id> [--overwrite-all | --force] [--profile <profile>]
+
+   - <cluster-id> must start with 'mk8scluster-'
+   - Only one of --overwrite-all or --force can be used at a time
+   - Default profile is 'prod-sa'
+
+8. Update nebctl:
+   nebctl update
+
+   - Pulls the latest code and reruns the installer
+
+---------------------------------------------
+TROUBLESHOOTING:
+  - All commands require a valid 'prod-sa' profile (checked automatically).
+  - If you see errors about missing arguments or flags, re-check your command.
+  - Use -h or --help on any subcommand for more info.
+  - Example: nebctl get instance -h
+
+---------------------------------------------
+"""
+
+def main():
+    print(HELP)
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()

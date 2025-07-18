@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+
+import sys
+import subprocess
+import shlex
+import json
+
+USAGE = """
+Usage:
+    nebctl get project -n <tenant-id> [--profile <profile>]
+
+Description:
+    Fetch project details by tenant ID.
+    Tenant ID must start with 'tenant-'.
+
+Options:
+    -n <tenant-id>           Required. The tenant/project ID to query.
+    --profile <profile>      Optional. Specify yc CLI profile. Defaults to 'prod-sa'.
+    --help                   Show this help message.
+
+Example:
+    nebctl get project -n tenant-12345 --profile dev-profile
+"""
+
+def print_usage_and_exit():
+    print(USAGE.strip())
+    sys.exit(0)
+
+def error_exit(message):
+    print(f"❌ Error: {message}", file=sys.stderr)
+    print(USAGE.strip(), file=sys.stderr)
+    sys.exit(1)
+
+def parse_args(args):
+    if args == ["get", "project", "--help"]:
+        print_usage_and_exit()
+
+    if len(args) < 3 or args[0] != "get" or args[1] != "project":
+        error_exit("Only 'get project' is supported after 'nebctl'.")
+
+    tenant_id = None
+    profile = "prod-sa"
+    i = 2
+    seen = set()
+
+    while i < len(args):
+        arg = args[i]
+        if arg == "-n":
+            if "tenant" in seen:
+                error_exit("Duplicate '-n' argument.")
+            if i + 1 >= len(args):
+                error_exit("'-n' requires a tenant ID.")
+            tenant_id = args[i + 1]
+            seen.add("tenant")
+            i += 2
+        elif arg == "--profile":
+            if "profile" in seen:
+                error_exit("Duplicate '--profile' argument.")
+            if i + 1 >= len(args):
+                error_exit("'--profile' requires a value.")
+            profile = args[i + 1]
+            seen.add("profile")
+            i += 2
+        else:
+            error_exit(f"Unknown argument '{arg}'. Only -n and --profile are supported.")
+
+    if not tenant_id:
+        error_exit("Missing required '-n <tenant-id>' argument.")
+    if not tenant_id.startswith("tenant-"):
+        error_exit("Invalid tenant ID. Must start with 'tenant-'.")
+    return tenant_id, profile
+
+def run_npc_command(profile, tenant_id, page_token=None, npc_path="npc"):
+    cmd = f'{shlex.quote(npc_path)} --profile {shlex.quote(profile)} --format json iam project list --parent-id {shlex.quote(tenant_id)}'
+    if page_token:
+        cmd += f' --page-token {shlex.quote(page_token)}'
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            encoding='utf-8'
+        )
+        if result.stderr.strip():
+            print("⚠️  Warning (npc CLI stderr):", file=sys.stderr)
+            print(result.stderr.strip(), file=sys.stderr)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        print("❌ Error: Failed to execute npc command.", file=sys.stderr)
+        if e.stderr:
+            print("npc CLI error output:", file=sys.stderr)
+            print(e.stderr.strip(), file=sys.stderr)
+        else:
+            print("(No additional error info from CLI.)", file=sys.stderr)
+        sys.exit(2)
+
+def parse_projects(json_str):
+    try:
+        data = json.loads(json_str)
+        return data.get('items', []), data.get('next_page_token')
+    except Exception as ex:
+        print("❌ Error: Failed to parse npc CLI output as JSON.", file=sys.stderr)
+        print(f"Details: {ex}", file=sys.stderr)
+        sys.exit(3)
+
+def print_table(rows, header):
+    if not rows:
+        print("No projects found.")
+        return
+    col_widths = [max(len(str(cell)) for cell in [h] + [row[i] for row in rows]) for i, h in enumerate(header)]
+    fmt = "  ".join("{:<" + str(w) + "}" for w in col_widths)
+    print(fmt.format(*header))
+    for row in rows:
+        print(fmt.format(*row))
+
+def main():
+    tenant_id, profile = parse_args(sys.argv[1:])
+    all_projects = []
+    next_page_token = None
+
+    while True:
+        output = run_npc_command(profile, tenant_id, next_page_token)
+        items, next_page_token = parse_projects(output)
+        all_projects.extend(items)
+        if not next_page_token:
+            break
+
+    header = ["NAME", "ID", "REGION", "STATE"]
+    rows = []
+    for proj in all_projects:
+        name = proj.get("metadata", {}).get("name", "")
+        pid = proj.get("metadata", {}).get("id", "")
+        region = proj.get("status", {}).get("region", "")
+        state = proj.get("status", {}).get("state", "")
+        rows.append([name, pid, region, state])
+
+    print_table(rows, header)
+
+if __name__ == "__main__":
+    main()

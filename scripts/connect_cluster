@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+
+import sys
+import subprocess
+
+USAGE = """\
+Usage: nebctl connect cluster <cluster-id> [--overwrite-all | --force] [--profile <profile>]
+
+Description:
+  Connect your kubectl context to a specified MK8s cluster using its ID.
+  The cluster ID must start with 'mk8scluster-'.
+
+Options:
+  <cluster-id>        Required. Must start with 'mk8scluster-'.
+  --overwrite-all     Delete all npc-related kubectl contexts before connecting.
+  --force             Force overwrite of kubectl config when getting credentials.
+  --profile           Optional. Profile name for npc (default: prod-sa).
+  -h, --help          Show this usage guide.
+
+Note:
+  Only one of --overwrite-all or --force can be specified at a time.
+
+Example:
+  nebctl connect cluster mk8scluster-e00sax3qcb30hds269 --force
+"""
+
+def print_usage_and_exit():
+    print(USAGE, file=sys.stderr)
+    sys.exit(1)
+
+def error_exit(message):
+    print(f"Error: {message}", file=sys.stderr)
+    print_usage_and_exit()
+
+def parse_args(args):
+    if not args or args[0] in ("-h", "--help"):
+        print_usage_and_exit()
+
+    cluster_id = args[0]
+    if not cluster_id.startswith("mk8scluster-"):
+        error_exit("Invalid cluster ID. Must start with 'mk8scluster-'.")
+
+    overwrite_all = False
+    force = False
+    profile = "prod-sa"
+    seen = set()
+
+    i = 1
+    while i < len(args):
+        arg = args[i]
+        if arg == "--overwrite-all":
+            if "overwrite_all" in seen:
+                error_exit("Duplicate --overwrite-all flag.")
+            overwrite_all = True
+            seen.add("overwrite_all")
+            i += 1
+        elif arg == "--force":
+            if "force" in seen:
+                error_exit("Duplicate --force flag.")
+            force = True
+            seen.add("force")
+            i += 1
+        elif arg == "--profile":
+            if "profile" in seen:
+                error_exit("Duplicate --profile flag.")
+            if i + 1 >= len(args):
+                error_exit("--profile requires a value.")
+            profile = args[i + 1]
+            seen.add("profile")
+            i += 2
+        else:
+            error_exit(f"Unrecognized argument '{arg}'.")
+
+    if overwrite_all and force:
+        error_exit("Only one of --overwrite-all or --force can be used at a time.")
+
+    return cluster_id, overwrite_all, force, profile
+
+def get_kubectl_contexts():
+    try:
+        result = subprocess.run(
+            ["kubectl", "config", "get-contexts", "--no-headers"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+        lines = result.stdout.strip().splitlines()
+        contexts = []
+        for line in lines:
+            parts = line.split()
+            if not parts:
+                continue
+            context_name = parts[1] if parts[0] == '*' else parts[0]
+            if context_name.startswith("npc"):
+                contexts.append(context_name)
+        return contexts
+    except subprocess.CalledProcessError:
+        error_exit("Failed to get kubectl contexts. Make sure kubectl is installed and configured.")
+
+def delete_npc_contexts(contexts):
+    for context in contexts:
+        try:
+            subprocess.run(
+                ["kubectl", "config", "delete-context", context],
+                check=True
+            )
+            print(f"Deleted context: {context}")
+        except subprocess.CalledProcessError:
+            print(f"Failed to delete context: {context}", file=sys.stderr)
+
+def connect_to_cluster(cluster_id, force, profile):
+    command = [
+        "npc", "--profile", profile,
+        "mk8s", "cluster", "get-credentials",
+        "--id", cluster_id,
+        "--external"
+    ]
+    if force:
+        command.append("--force")
+
+    try:
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+        print(result.stdout.strip())
+        if result.stderr:
+            print(result.stderr.strip(), file=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        error_exit(f"Failed to connect to cluster:\n{e.stderr.strip() if e.stderr else e.stdout.strip()}")
+
+def main():
+    if len(sys.argv) < 3 or sys.argv[1] != "connect" or sys.argv[2] != "cluster":
+        print_usage_and_exit()
+
+    cluster_id, overwrite_all, force, profile = parse_args(sys.argv[3:])
+
+    if overwrite_all:
+        npc_contexts = get_kubectl_contexts()
+        delete_npc_contexts(npc_contexts)
+
+    connect_to_cluster(cluster_id, force, profile)
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nAborted by user", file=sys.stderr)
+        sys.exit(130)

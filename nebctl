@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import subprocess
+from pathlib import Path
+import argparse
+
+VALID_ACTIONS = {"get", "describe", "connect", "search", "update"}
+
+USAGE = """
+Nebctl - Unified CLI for Nebius Platform Operations
+
+Usage:
+  nebctl <action> <resource> [options]
+
+Actions:
+  get        Retrieve data (e.g., nebctl get instance ...)
+  describe   Show resource info (e.g., nebctl describe instance ...)
+  connect    Connect to a resource (e.g., nebctl connect cluster ...)
+  search     Search for resources (e.g., nebctl search docu ...)
+  update     Update CLI or dependencies (e.g., nebctl update)
+
+Use 'nebctl --help' or 'nebctl -h' for help.
+"""
+
+def get_scripts_dir():
+    return Path(__file__).resolve().parent / "scripts"
+
+def print_usage_and_exit(code=1):
+    print(USAGE, file=sys.stderr)
+    sys.exit(code)
+
+def error_exit(message):
+    print(f"Error: {message}\n", file=sys.stderr)
+    print_usage_and_exit()
+
+def run_script(script_path, args):
+    try:
+        result = subprocess.run([str(script_path)] + args, check=True, capture_output=True, text=True)
+        if result.stdout:
+            print(result.stdout, end="")
+    except subprocess.CalledProcessError as e:
+        if e.stderr:
+            print(e.stderr, file=sys.stderr)
+        elif e.stdout:
+            print(e.stdout, file=sys.stderr)
+        sys.exit(e.returncode)
+    except Exception as ex:
+        print(f"Unexpected error: {str(ex)}", file=sys.stderr)
+        sys.exit(1)
+
+def check_prod_sa_profile():
+    try:
+        result = subprocess.run(["npc", "profile", "list"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        for line in result.stdout.splitlines():
+            if line.strip().startswith("prod-sa"):
+                return
+        error_exit("Missing required 'prod-sa' profile. It must exist and be named exactly 'prod-sa'.\nYou can also use --profile <profile_name> to specify a different profile.")
+    except subprocess.CalledProcessError:
+        error_exit("Failed to list npc profiles. Ensure 'npc' is installed and configured.")
+
+def main():
+    scripts_dir = get_scripts_dir()
+    args = sys.argv[1:]
+
+    if not args:
+        print("Error: No arguments provided.\n", file=sys.stderr)
+        print_usage_and_exit()
+
+    if args == ["--help"] or args == ["-h"]:
+        help_script = scripts_dir / "get_help"
+        if not help_script.exists() or not os.access(help_script, os.X_OK):
+            error_exit("Help script (get_help) not found or not executable.")
+        run_script(help_script, [])
+        return
+
+    if args[0] == "update":
+        if len(args) != 1:
+            error_exit(f"Invalid syntax for '{args[0]}'. Only 'nebctl {args[0]}' is allowed.")
+        script_path = scripts_dir / args[0]
+        if not script_path.exists() or not os.access(script_path, os.X_OK):
+            error_exit(f"Script '{args[0]}' not found or not executable.")
+        run_script(script_path, [])
+        return
+
+    if args[0] not in VALID_ACTIONS:
+        error_exit(f"Unknown action '{args[0]}'.")
+
+    if len(args) < 2:
+        error_exit(f"Missing resource for action '{args[0]}'.")
+
+    action, resource = args[0], args[1]
+    script_name = f"{action}_{resource}"
+    script_path = scripts_dir / script_name
+
+    if not script_path.exists():
+        error_exit(f"Script '{script_name}' not found in {scripts_dir}.")
+    if not os.access(script_path, os.X_OK):
+        error_exit(f"Script '{script_name}' is not executable. Try: chmod +x {script_path}")
+
+    if action in {"get", "describe", "connect", "search"}:
+        check_prod_sa_profile()
+
+    run_script(script_path, args)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+
+import sys
+import subprocess
+import json
+
+USAGE = """\
+Usage:
+    nebctl get instance -n <project-id> [--profile <profile>]
+
+Description:
+    Fetch compute instances for a given project.
+    Project ID must start with 'project-'.
+
+Options:
+    -n <project-id>           Required. The project ID to query.
+    --profile <profile>      Optional. Specify CLI profile. Defaults to 'prod-sa'.
+    --page-token <token>     Optional. Specify a page token to resume listing.
+    --help                   Show this help message.
+
+Example:
+    nebctl get instance -n project-1234abcd --profile dev-profile
+"""
+
+def print_usage_and_exit(code=1):
+    print(USAGE, file=sys.stderr)
+    sys.exit(code)
+
+def print_error(msg, show_usage=False):
+    print(f"Error: {msg}", file=sys.stderr)
+    if show_usage:
+        print(USAGE, file=sys.stderr)
+    sys.exit(1)
+
+def validate_project_id(pid):
+    return pid and pid.startswith("project-")
+
+def run_npc(profile, project_id, page_token=None):
+    cmd = [
+        "npc", "--profile", profile, "--format", "json",
+        "compute", "instance", "list",
+        "--parent-id", project_id
+    ]
+    if page_token:
+        cmd += ["--page-token", page_token]
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        if result.stderr.strip():
+            print(result.stderr.strip(), file=sys.stderr)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        print(e.stderr.strip(), file=sys.stderr)
+        sys.exit(2)
+
+def extract_fields(obj):
+    instances = []
+    for item in obj.get("items", []):
+        metadata = item.get("metadata", {})
+        spec = item.get("spec", {})
+        resources = spec.get("resources", {})
+        status = item.get("status", {})
+        instances.append({
+            "name": metadata.get("name", ""),
+            "id": metadata.get("id", ""),
+            "platform": resources.get("platform", ""),
+            "preset": resources.get("preset", ""),
+            "state": status.get("state", ""),
+            "compute_node": status.get("compute_node", ""),
+        })
+    return instances
+
+def print_table(instances):
+    if not instances:
+        print("No instances found.")
+        return
+    columns = [
+        ("name", "NAME", 45),
+        ("id", "ID", 36),
+        ("platform", "PLATFORM", 10),
+        ("preset", "PRESET", 14),
+        ("state", "STATE", 10),
+        ("compute_node", "COMPUTE NODE", 38),
+    ]
+    header = "".join(title.ljust(width) for _, title, width in columns)
+    print(header)
+    for inst in instances:
+        row = ""
+        for key, _, width in columns:
+            value = str(inst.get(key, ""))
+            if len(value) <= width:
+                row += value.ljust(width)
+            else:
+                row += value[:width - 1] + " "
+        print(row)
+
+def main():
+    args = sys.argv[1:]
+
+    if len(args) == 3 and args[0] == "get" and args[1] == "instance" and args[2] == "--help":
+        print_usage_and_exit(0)
+
+    if len(args) < 3 or args[0] != "get" or args[1] != "instance":
+        print_error("Invalid command structure. Expected: get instance -n <project-id> [--profile <profile>]", show_usage=True)
+
+    project_id = None
+    profile = "prod-sa"
+    page_token = None
+
+    i = 2
+    while i < len(args):
+        arg = args[i]
+        if arg == "-n":
+            i += 1
+            if i >= len(args):
+                print_error("Missing project ID after -n.", show_usage=True)
+            project_id = args[i]
+        elif arg == "--profile":
+            i += 1
+            if i >= len(args):
+                print_error("Missing value after --profile.", show_usage=True)
+            profile = args[i]
+        elif arg == "--page-token":
+            i += 1
+            if i >= len(args):
+                print_error("Missing value after --page-token.", show_usage=True)
+            page_token = args[i]
+        elif arg == "--help":
+            print_usage_and_exit(0)
+        else:
+            print_error(f"Unrecognized argument: {arg}", show_usage=True)
+        i += 1
+
+    if not project_id:
+        print_error("Missing -n <project-id>. This command is used to get instances for a valid project.", show_usage=True)
+    if not validate_project_id(project_id):
+        print_error("Invalid project ID. Must start with 'project-'.", show_usage=True)
+
+    all_instances = []
+    next_page_token = page_token
+
+    while True:
+        raw_output = run_npc(profile, project_id, next_page_token)
+        try:
+            parsed = json.loads(raw_output)
+        except json.JSONDecodeError:
+            print("Error: Failed to parse response from npc CLI.", file=sys.stderr)
+            sys.exit(3)
+
+        all_instances.extend(extract_fields(parsed))
+        next_page_token = parsed.get("next_page_token")
+        if not next_page_token:
+            break
+
+    print_table(all_instances)
+
+if __name__ == "__main__":
+    main()

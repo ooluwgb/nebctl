@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+
+import sys
+import subprocess
+import json
+
+USAGE = """\
+Usage: nebctl describe instance <computeinstance-id> [--profile <profile>]
+
+Description:
+  Show details of a compute instance using its ID.
+  The compute instance ID must start with 'computeinstance-'.
+
+Options:
+  <computeinstance-id>   Required. Must start with 'computeinstance-'.
+  --profile               Optional. Profile name for npc (default: prod-sa)
+  -h, --help              Show this usage guide
+
+Example:
+  nebctl describe instance computeinstance-e00r5axz7ss1gbgmvg
+"""
+
+DEFAULT_PROFILE = "prod-sa"
+ID_PREFIX = "computeinstance-"
+
+def print_usage_and_exit(code=1):
+    print(USAGE, file=sys.stderr)
+    sys.exit(code)
+
+def error_exit(message):
+    print(f"Error: {message}\n", file=sys.stderr)
+    print_usage_and_exit()
+
+def parse_args(args):
+    if not args:
+        error_exit("Missing arguments. Expected format: describe instance <computeinstance-id> [--profile ...]")
+
+    if args[0] in ("-h", "--help"):
+        print_usage_and_exit(0)
+
+    if len(args) < 3:
+        error_exit("Missing required arguments. Expected format: describe instance <computeinstance-id> [--profile ...]")
+
+    if args[0] != "describe" or args[1] != "instance":
+        error_exit("Invalid usage. Expected format: describe instance <computeinstance-id> [--profile ...]")
+
+    instance_id = args[2]
+
+    if instance_id.startswith("-"):
+        error_exit("Invalid syntax. Unexpected flag instead of instance ID.")
+
+    if not instance_id.startswith(ID_PREFIX):
+        error_exit("Invalid compute instance ID format. Must start with 'computeinstance-'")
+
+    profile = DEFAULT_PROFILE
+    i = 3
+    while i < len(args):
+        if args[i] == "--profile":
+            i += 1
+            if i >= len(args):
+                error_exit("Missing value for --profile")
+            profile = args[i]
+        elif args[i] in ("-h", "--help"):
+            print_usage_and_exit(0)
+        else:
+            error_exit(f"Unknown argument: {args[i]}")
+        i += 1
+
+    return instance_id, profile
+
+def describe_instance(instance_id, profile):
+    try:
+        cmd = ["npc", "compute", "instance", "get", "--id", instance_id, "--profile", profile]
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        print(result.stdout)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.strip() if e.stderr else str(e)
+        print(f"Failed to retrieve instance description:\n{stderr}", file=sys.stderr)
+        sys.exit(e.returncode)
+
+def main():
+    instance_id, profile = parse_args(sys.argv[1:])
+    describe_instance(instance_id, profile)
+
+if __name__ == "__main__":
+    main()

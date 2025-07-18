@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+MIN_PYTHON_VERSION="3.8"
+NEBCTL_DIR="$HOME/.nebctl"
+BIN_DIR="$HOME/.local/bin"
+NEBCTL_BIN="$BIN_DIR/nebctl"
+
+function print_step() {
+    echo -e "\n➡️  $1"
+}
+
+function print_done() {
+    echo "✅ $1"
+}
+
+function check_python() {
+    print_step "Checking for Python 3.8 or newer..."
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "❌ Python 3 is not installed. Please install Python 3.8+ and rerun." >&2
+        exit 1
+    fi
+
+    PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+    if [[ $(printf '%s\n' "$MIN_PYTHON_VERSION" "$PYTHON_VERSION" | sort -V | head -n1) != "$MIN_PYTHON_VERSION" ]]; then
+        echo "❌ Python version $PYTHON_VERSION is too old. Please upgrade to 3.8 or newer." >&2
+        exit 1
+    fi
+    print_done "Python is OK ($PYTHON_VERSION)"
+}
+
+function check_npc() {
+    print_step "Checking for 'npc' CLI tool..."
+    if command -v npc >/dev/null 2>&1; then
+        print_done "npc is already installed"
+    else
+        echo "Installing npc CLI..."
+        curl -sSL https://artifactory.nebius.dev/artifactory/npc/install.sh | bash
+        print_done "npc installed"
+    fi
+}
+
+function detect_distro() {
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "macos"
+    elif [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        echo "$ID"
+    else
+        echo "unknown"
+    fi
+}
+
+function install_kubectl() {
+    print_step "Checking for kubectl..."
+    if command -v kubectl >/dev/null 2>&1; then
+        print_done "kubectl is already installed"
+        return
+    fi
+
+    DISTRO=$(detect_distro)
+    echo "Installing kubectl for $DISTRO..."
+
+    case "$DISTRO" in
+        ubuntu|debian)
+            sudo apt-get update -y
+            sudo apt-get install -y apt-transport-https ca-certificates curl gnupg
+            curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+            echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list >/dev/null
+            sudo apt-get update -y
+            sudo apt-get install -y kubectl
+            ;;
+        amzn)
+            sudo yum install -y curl
+            curl -LO "https://s3.us-west-2.amazonaws.com/amazon-eks/1.27.3/2023-09-14/bin/linux/amd64/kubectl"
+            chmod +x kubectl
+            sudo mv kubectl /usr/local/bin/
+            ;;
+        fedora|centos|rhel)
+            sudo dnf install -y kubectl || sudo yum install -y kubectl
+            ;;
+        macos)
+            if command -v brew >/dev/null 2>&1; then
+                brew install kubectl
+            else
+                echo "❌ Homebrew not found. Please install kubectl manually." >&2
+            fi
+            ;;
+        *)
+            echo "❌ Unsupported OS. Please install kubectl manually: https://kubernetes.io/docs/tasks/tools/" >&2
+            ;;
+    esac
+    print_done "kubectl installed"
+}
+
+function install_nebctl() {
+    print_step "Installing nebctl CLI..."
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    rm -rf "$NEBCTL_DIR"
+    mkdir -p "$NEBCTL_DIR"
+    rsync -a --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='*.pyo' "$SCRIPT_DIR/" "$NEBCTL_DIR/"
+
+    mkdir -p "$BIN_DIR"
+    ln -sf "$NEBCTL_DIR/nebctl" "$NEBCTL_BIN"
+    print_done "nebctl installed to $NEBCTL_BIN"
+
+    # Optional: Link into /usr/local/bin for global usage
+    if command -v sudo >/dev/null 2>&1 && [[ -w /usr/local/bin || "$(id -u)" -eq 0 ]]; then
+        print_step "Linking nebctl to /usr/local/bin..."
+        sudo ln -sf "$NEBCTL_BIN" /usr/local/bin/nebctl
+        print_done "Linked: /usr/local/bin/nebctl → $NEBCTL_BIN"
+    else
+        echo "⚠️  Skipped linking to /usr/local/bin (no sudo or permission)."
+        echo "    Ensure ~/.local/bin is in your PATH or link manually:"
+        echo "    sudo ln -sf $NEBCTL_BIN /usr/local/bin/nebctl"
+    fi
+}
+
+function ensure_path_in_shell_rc() {
+    print_step "Ensuring $BIN_DIR is in your PATH..."
+    export_line='export PATH="$HOME/.local/bin:$PATH"'
+    shell_name=$(basename "$SHELL")
+    case "$shell_name" in
+        bash) rcfile="$HOME/.bashrc" ;;
+        zsh)  rcfile="$HOME/.zshrc" ;;
+        *)    echo "⚠️  Unknown shell. Add '$export_line' to your shell profile manually."; return ;;
+    esac
+
+    if [[ -f "$rcfile" && $(grep -F "$export_line" "$rcfile" || true) ]]; then
+        print_done "PATH already set in $rcfile"
+    else
+        echo "$export_line" >> "$rcfile"
+        print_done "Added nebctl path to $rcfile"
+    fi
+}
+
+function main() {
+    echo "🌟 Starting nebctl installation..."
+    check_python
+    check_npc
+    install_kubectl
+    install_nebctl
+    ensure_path_in_shell_rc
+    echo -e "\n🎉 Done! Restart your terminal or run: source ~/.bashrc (or ~/.zshrc)"
+    echo "Then use:  nebctl --version  to verify installation."
+}
+
+main "$@"

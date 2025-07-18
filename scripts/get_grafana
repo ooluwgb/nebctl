@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+
+import sys
+import subprocess
+import webbrowser
+import json
+
+ENV_MAP = {
+    'e00': '[PROD]',
+    'e02': '[PROD] KEF',
+    'e01': '[PROD] PA10',
+    'u00': '[PROD] KCS'
+}
+
+OVERVIEW_DASHBOARD = "https://grafana.nebius.dev/d/demn0e626jl6od/compute-instance-overview"
+HOST_MAPPING_DASHBOARD = "https://grafana.nebius.dev/d/be589uf1iu96oe/compute-instance-to-host-mapping"
+GPU_DASHBOARD = "https://grafana.nebius.dev/d/eei2m8osge1oga/gpu-ib-by-instance"
+
+MONITORING_UID = "fc872d93-d988-491c-83cd-19249cb962b0"
+
+USAGE = """\
+Usage:
+    nebctl get grafana <instance-id> [--host|--gpu]
+
+Description:
+    Open monitoring dashboards for a given compute instance in Grafana.
+    Instance ID must start with 'computeinstance-'.
+
+Options:
+    <instance-id>            Required. ID of the compute instance.
+    --host                   Optional. Show Host Mapping dashboard.
+    --gpu                    Optional. Show GPU/IB dashboard.
+    --help                   Show this help message.
+
+Example:
+    nebctl get grafana computeinstance-e00abc123 --gpu
+"""
+
+def get_env(instance_id):
+    try:
+        code = instance_id.split('-')[1][:3]
+        return ENV_MAP.get(code, '[PROD]')
+    except (IndexError, AttributeError):
+        return '[PROD]'
+
+def get_node(instance_id):
+    try:
+        result = subprocess.run(
+            [
+                'npc', '--profile', 'prod-sa', 'compute', 'instance', 'get',
+                '--id', instance_id, '--format', 'json'
+            ],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        data = json.loads(result.stdout)
+        return data.get('status', {}).get('compute_node')
+    except Exception as e:
+        print(f"[ERROR] Could not fetch node for instance {instance_id}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def url_encode(val):
+    return val.replace(' ', '%20').replace('[', '%5B').replace(']', '%5D')
+
+def build_overview_url(env, instance_id):
+    params = [
+        "orgId=1",
+        f"var-instance_id={instance_id}",
+        f"var-env={url_encode(env)}"
+    ]
+    return f"{OVERVIEW_DASHBOARD}?{'&'.join(params)}"
+
+def build_hostmap_url(env, instance_id, node):
+    params = [
+        "var-timeShift=$__auto",
+        "orgId=1",
+        "from=now-6h",
+        "to=now",
+        "timezone=browser",
+        f"var-env={url_encode(env)}",
+        f"var-monitoring={MONITORING_UID}",
+        f"var-instances={instance_id}",
+        f"var-node={node}"
+    ]
+    return f"{HOST_MAPPING_DASHBOARD}?{'&'.join(params)}"
+
+def build_gpu_url(env, instance_id, node):
+    params = [
+        "orgId=1",
+        "from=now-12h",
+        "to=now",
+        "timezone=utc",
+        f"var-env={url_encode(env)}",
+        "var-temp_ds=defxzppwlhvr4b",
+        "var-ds_metrics=fc872d93-d988-491c-83cd-19249cb962b0",
+        "var-ds_loki=cd868168-09d4-4ece-82db-e646130697e5",
+        f"var-instance_id={instance_id}",
+        f"var-node={node}",
+        "var-ib_cluster=nova"
+    ]
+    return f"{GPU_DASHBOARD}?{'&'.join(params)}"
+
+def print_usage_and_exit(code=1):
+    print(USAGE, file=sys.stderr)
+    sys.exit(code)
+
+def main():
+    args = sys.argv[1:]
+
+    if not args or '--help' in args or '-h' in args:
+        print_usage_and_exit(0)
+
+    if '-n' in args:
+        print("[ERROR] Unrecognized argument: -n\n", file=sys.stderr)
+        print_usage_and_exit(1)
+
+    instance_id = None
+    dashboard_flag = None
+
+    for arg in args:
+        if arg.startswith("computeinstance-"):
+            instance_id = arg
+        elif arg in ("--host", "--gpu"):
+            if dashboard_flag:
+                print("[ERROR] Only one of --host or --gpu may be provided\n", file=sys.stderr)
+                print_usage_and_exit()
+            dashboard_flag = arg
+        elif arg.startswith("--"):
+            print(f"[ERROR] Unrecognized argument: {arg}\n", file=sys.stderr)
+            print_usage_and_exit()
+
+    if not instance_id:
+        print("[ERROR] Missing required <instance-id> argument\n", file=sys.stderr)
+        print_usage_and_exit()
+
+    env = get_env(instance_id)
+    node = get_node(instance_id)
+
+    if not node:
+        print(f"[ERROR] No compute node found for instance {instance_id}\n", file=sys.stderr)
+        sys.exit(1)
+
+    if dashboard_flag == "--host":
+        url = build_hostmap_url(env, instance_id, node)
+    elif dashboard_flag == "--gpu":
+        url = build_gpu_url(env, instance_id, node)
+    else:
+        url = build_overview_url(env, instance_id)
+
+    webbrowser.open(url)
+
+if __name__ == "__main__":
+    main()
