@@ -25,8 +25,6 @@ get_python_version() {
     "$@" -c 'import sys; print(".".join(map(str, sys.version_info[:2])))'
 }
 
-# Returns true if version $1 is greater than or equal to version $2 (e.g., "3.8" >= "3.7").
-# It sorts both versions and checks if $2 is the smallest; if so, $1 >= $2.
 version_ge() {
     [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
 }
@@ -119,8 +117,6 @@ create_symlink() {
         sudo ln -sf "$NEBCTL_BIN" /usr/local/bin/nebctl
         echo "Also linked to /usr/local/bin/nebctl"
     fi
-        echo "Also linked to /usr/local/bin/nebctl"
-    fi
 
     for rcfile in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
         if [[ -f "$rcfile" ]]; then
@@ -191,12 +187,12 @@ check_prod_sa() {
         else
             echo "Continuing without prod-sa. You can pass --profile manually later."
         fi
+    fi
+}
+
 install_requirements() {
     if [[ -f "$INSTALL_DIR/requirements.txt" ]]; then
         "$PY_CMD" -m pip install --user -r "$INSTALL_DIR/requirements.txt"
-    fi
-}
-        python3 -m pip install --user -r "$INSTALL_DIR/requirements.txt"
     fi
 }
 
