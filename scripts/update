@@ -30,12 +30,14 @@ def clone_to_temp():
     return tmp_dir
 
 def replace_existing_install(tmp_dir):
-    print_step(f"Removing existing installation at {INSTALL_DIR}")
+    print_step(f"Removing .git directory from temp clone")
+    git_dir = tmp_dir / ".git"
+    if git_dir.exists():
+        shutil.rmtree(git_dir)
+
     print_step(f"Copying updated version to {INSTALL_DIR}")
     shutil.copytree(str(tmp_dir), str(INSTALL_DIR), dirs_exist_ok=True, symlinks=True)
     shutil.rmtree(tmp_dir)
-    print_step(f"Moving updated version to {INSTALL_DIR}")
-    shutil.move(str(tmp_dir), str(INSTALL_DIR))
 
 def run_post_install():
     post_script = INSTALL_DIR / "install"
