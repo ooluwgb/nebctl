@@ -22,9 +22,11 @@ find_any_python() {
 }
 
 get_python_version() {
-    "$1" -c 'import sys; print(".".join(map(str, sys.version_info[:2])))'
+    "$@" -c 'import sys; print(".".join(map(str, sys.version_info[:2])))'
 }
 
+# Returns true if version $1 is greater than or equal to version $2 (e.g., "3.8" >= "3.7").
+# It sorts both versions and checks if $2 is the smallest; if so, $1 >= $2.
 version_ge() {
     [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
 }
@@ -110,10 +112,13 @@ create_symlink() {
     mkdir -p "$BIN_DIR"
     chmod +x "$INSTALL_DIR/nebctl"
     ln -sf "$INSTALL_DIR/nebctl" "$NEBCTL_BIN"
-    echo "Linked $NEBCTL_BIN"
-
-    if command -v sudo >/dev/null 2>&1 && { [[ -w /usr/local/bin ]] || [[ "$(id -u)" -eq 0 ]]; }; then
+    if [[ "$(id -u)" -eq 0 ]]; then
+        ln -sf "$NEBCTL_BIN" /usr/local/bin/nebctl
+        echo "Also linked to /usr/local/bin/nebctl (as root)"
+    elif command -v sudo >/dev/null 2>&1 && [[ -w /usr/local/bin ]]; then
         sudo ln -sf "$NEBCTL_BIN" /usr/local/bin/nebctl
+        echo "Also linked to /usr/local/bin/nebctl"
+    fi
         echo "Also linked to /usr/local/bin/nebctl"
     fi
 
@@ -186,11 +191,11 @@ check_prod_sa() {
         else
             echo "Continuing without prod-sa. You can pass --profile manually later."
         fi
-    fi
-}
-
 install_requirements() {
     if [[ -f "$INSTALL_DIR/requirements.txt" ]]; then
+        "$PY_CMD" -m pip install --user -r "$INSTALL_DIR/requirements.txt"
+    fi
+}
         python3 -m pip install --user -r "$INSTALL_DIR/requirements.txt"
     fi
 }
@@ -203,7 +208,7 @@ main() {
     install_npc
     check_prod_sa
     install_requirements
-    echo "nebctl installed successfully. Restart your terminal or run 'source ~/.bashrc', '.zshrc', or '.profile' as needed."
+    echo "nebctl installed successfully. Restart your terminal or run 'source ~/.bashrc', 'source ~/.zshrc', or 'source ~/.profile' depending on your shell."
 }
 
 main "$@"

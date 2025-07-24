@@ -1,7 +1,7 @@
 $repoUrl = "https://github.com/ooluwgb/nebctl.git"
 $installDir = "$env:USERPROFILE\.nebctl"
 $binDir = "$env:USERPROFILE\AppData\Local\Microsoft\WindowsApps"
-$entryScript = "nebctl"  # Updated from nebctl\nebctl.py
+$entryScript = "nebctl.py"  # Entry point script for nebctl
 $shimPath = "$binDir\nebctl.cmd"
 
 function Print-Step($msg) {
@@ -49,7 +49,7 @@ function Create-Symlink {
         New-Item -ItemType Directory -Path $binDir | Out-Null
     }
     $shim = "@echo off`r`npython `"$installDir\$entryScript`" %*"
-    Set-Content -Path $shimPath -Value $shim -Encoding ASCII
+    Set-Content -Path $shimPath -Value $shim -Encoding UTF8
     Write-Host "Created shim at $shimPath"
 }
 
@@ -71,7 +71,7 @@ function Ensure-NPC {
         Print-Step "Installing npc..."
         $npcScript = "$env:TEMP\install_npc.ps1"
         Invoke-WebRequest -Uri "https://artifactory.nebius.dev/artifactory/npc/install.ps1" -OutFile $npcScript
-        powershell -ExecutionPolicy Bypass -File $npcScript
+        & $npcScript
     } else {
         Write-Host "npc already installed."
     }
@@ -94,12 +94,19 @@ function Install-Requirements {
     if (Test-Path $reqFile) {
         Write-Host "Installing Python requirements..."
         & python -m pip install --user -r $reqFile
+
+        # Check if user scripts directory is in PATH
+        $userBase = & python -m site --user-base
+        $userScripts = Join-Path $userBase "Scripts"
+        if ($env:PATH -notlike "*$userScripts*") {
+            Write-Warning "The Python user scripts directory ($userScripts) is not in your PATH. You may need to add it to run installed packages."
+        }
     }
 }
 
 function Main {
     Ensure-Git
-    Ensure-Python
+    Write-Host "nebctl installed successfully. Please open a new terminal for PATH changes to take effect, then run 'nebctl --version'"
     Clone-Or-Update-Repo
     Create-Symlink
     Ensure-Kubectl

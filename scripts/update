@@ -14,10 +14,12 @@ def print_step(msg):
     print(f"\n{msg}")
 
 def run(cmd, cwd=None):
-    """Run a subprocess command and exit on failure."""
-    result = subprocess.run(cmd, cwd=cwd)
+    """Run a subprocess command and exit on failure, printing output if it fails."""
+    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"Command failed: {' '.join(cmd)}")
+        print("stdout:\n", result.stdout)
+        print("stderr:\n", result.stderr)
         sys.exit(1)
 
 def clone_to_temp():
@@ -29,8 +31,9 @@ def clone_to_temp():
 
 def replace_existing_install(tmp_dir):
     print_step(f"Removing existing installation at {INSTALL_DIR}")
-    if INSTALL_DIR.exists():
-        shutil.rmtree(INSTALL_DIR)
+    print_step(f"Copying updated version to {INSTALL_DIR}")
+    shutil.copytree(str(tmp_dir), str(INSTALL_DIR), dirs_exist_ok=True, symlinks=True)
+    shutil.rmtree(tmp_dir)
     print_step(f"Moving updated version to {INSTALL_DIR}")
     shutil.move(str(tmp_dir), str(INSTALL_DIR))
 
