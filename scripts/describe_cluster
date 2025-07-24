@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+
+import sys
+import subprocess
+
+USAGE = """\
+Usage:
+    nebctl describe cluster <cluster-id> [--profile <profile>]
+
+Description:
+    Show detailed information about a specific Kubernetes cluster.
+    The cluster ID must start with 'mk8scluster-'.
+
+Options:
+    --profile <profile>         Optional. Defaults to 'prod-sa'.
+    --help                      Show this help message.
+
+Example:
+    nebctl describe cluster mk8scluster-e00cyj7dam4srnjvtw --profile dev-profile
+"""
+
+
+def print_usage_and_exit(code=1):
+    print(USAGE.strip())
+    sys.exit(code)
+
+
+def error_exit(message):
+    print(f"\u274c Error: {message}", file=sys.stderr)
+    print(USAGE.strip(), file=sys.stderr)
+    sys.exit(1)
+
+
+def run_npc_cmd(cmd):
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        if result.stderr.strip():
+            print(result.stderr.strip(), file=sys.stderr)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        if e.stderr:
+            print(e.stderr.strip(), file=sys.stderr)
+        else:
+            print(str(e), file=sys.stderr)
+        sys.exit(2)
+
+
+def parse_args(args):
+    if not args or "--help" in args:
+        print_usage_and_exit(0)
+
+    if len(args) < 3 or args[0] != "describe" or args[1] != "cluster":
+        error_exit("Invalid command structure.")
+
+    cluster_id = args[2]
+    if not cluster_id.startswith("mk8scluster-"):
+        error_exit("Cluster ID must start with 'mk8scluster-'.")
+
+    profile = "prod-sa"
+    seen = set()
+    i = 3
+    while i < len(args):
+        arg = args[i]
+        if arg == "--profile":
+            if "profile" in seen:
+                error_exit("Duplicate '--profile' argument.")
+            if i + 1 >= len(args):
+                error_exit("'--profile' requires a value.")
+            profile = args[i + 1]
+            seen.add("profile")
+            i += 2
+        else:
+            error_exit(f"Unrecognized argument '{arg}'.")
+
+    return cluster_id, profile
+
+
+def main():
+    cluster_id, profile = parse_args(sys.argv[1:])
+    cmd = [
+        "npc",
+        "--profile",
+        profile,
+        "--format",
+        "json",
+        "mk8s",
+        "cluster",
+        "get",
+        "--id",
+        cluster_id,
+    ]
+    out = run_npc_cmd(cmd)
+    print(out.strip())
+
+
+if __name__ == "__main__":
+    main()
