@@ -1,114 +1,220 @@
-#!/bin/bash
+#!/usr/bin/env python3
 
-set -euo pipefail
+import sys
+import subprocess
+import json
 
-PROFILE="prod-sa"
+USAGE = """\
+Usage:
+    nebctl get cluster -n <project-id|tenant-id> [--profile <profile>]
 
-function usage() {
-  echo "Usage: nebctl get cluster -n <project-id|tenant-id> [--profile <profile>]"
+Description:
+    List clusters within a project or all projects in a tenant.
+    The ID must start with 'project-' or 'tenant-'.
+
+Options:
+    -n <project-id|tenant-id>   Required. Provide either a project ID or tenant ID.
+    --profile <profile>         Optional. Defaults to 'prod-sa'.
+    --help                      Show this help message.
+
+Example:
+    nebctl get cluster -n project-abc123 --profile dev-profile
+"""
+
+REGION_MAP = {
+    "e00": "eu-north1",
+    "e02": "eu-north2",
+    "e01": "eu-west1",
+    "u00": "us-central1",
 }
 
-function unknown_flag() {
-  echo "Unknown flag: $1"
-  usage
-  exit 1
-}
 
-function region_from_id() {
-  prefix=${1:8:3}
-  case "$prefix" in
-    e00) echo "eu-north1" ;;
-    e02) echo "eu-north2" ;;
-    e01) echo "eu-west1" ;;
-    u00) echo "us-central1" ;;
-    *) echo "unknown" ;;
-  esac
-}
+def print_usage_and_exit(code=1):
+    print(USAGE.strip())
+    sys.exit(code)
 
-if [[ "$#" -eq 1 && "$1" == "--help" ]]; then
-  usage
-  exit 0
-fi
 
-PARENT_ID=""
+def error_exit(message):
+    print(f"\u274c Error: {message}", file=sys.stderr)
+    print(USAGE.strip(), file=sys.stderr)
+    sys.exit(1)
 
-while [[ "$#" -gt 0 ]]; do
-  case "$1" in
-    -n)
-      shift
-      if [[ "$#" -eq 0 ]]; then usage; exit 1; fi
-      PARENT_ID="$1"
-      ;;
-    --profile)
-      shift
-      if [[ "$#" -eq 0 ]]; then usage; exit 1; fi
-      PROFILE="$1"
-      ;;
-    -*)
-      unknown_flag "$1"
-      ;;
-    *)
-      usage
-      exit 1
-      ;;
-  esac
-  shift
-done
 
-if [[ -z "$PARENT_ID" ]]; then
-  usage
-  exit 1
-fi
+def region_from_id(rid):
+    idx = rid.find("-")
+    if idx == -1 or len(rid) < idx + 4:
+        return "unknown"
+    code = rid[idx + 1 : idx + 4]
+    return REGION_MAP.get(code, "unknown")
 
-printf "%-30s %-40s %-10s %-40s %-12s\n" "ClusterName" "ClusterID" "STATE" "ProjectID" "Region"
 
-function list_clusters_for_project() {
-  local project_id="$1"
-  local region
-  region=$(region_from_id "$project_id")
-  local ctoken=""
+def run_npc_cmd(cmd):
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        if result.stderr.strip():
+            print(result.stderr.strip(), file=sys.stderr)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        if e.stderr:
+            print(e.stderr.strip(), file=sys.stderr)
+        else:
+            print(str(e), file=sys.stderr)
+        sys.exit(2)
 
-  while : ; do
-    if [[ -n "$ctoken" ]]; then
-      cout=$(npc --profile "$PROFILE" mk8s cluster list --parent-id "$project_id" --format yaml --page-token "$ctoken")
-    else
-      cout=$(npc --profile "$PROFILE" mk8s cluster list --parent-id "$project_id" --format yaml)
-    fi
 
-    echo "$cout" | yq -r --arg project "$project_id" --arg region "$region" \
-      '.items[]? | [ .metadata.name, .metadata.id, .status.state, $project, $region ] | @tsv' |
-    while IFS=$'\t' read -r name id state pid reg; do
-      printf "%-30s %-40s %-10s %-40s %-12s\n" "$name" "$id" "$state" "$pid" "$reg"
-    done
+def parse_args(args):
+    if args == ["--help"] or args == ["get", "cluster", "--help"]:
+        print_usage_and_exit(0)
 
-    ctoken=$(echo "$cout" | yq -r '.next_page_token // empty')
-    [[ -z "$ctoken" ]] && break
-  done
-}
+    if len(args) < 3 or args[0] != "get" or args[1] != "cluster":
+        error_exit("Invalid command. Use: nebctl get cluster -n <id> [--profile <profile>]")
 
-if [[ "$PARENT_ID" =~ ^tenant- ]]; then
-  page_token=""
-  while : ; do
-    if [[ -n "$page_token" ]]; then
-      output=$(npc --profile "$PROFILE" iam project list --parent-id "$PARENT_ID" --format yaml --page-token "$page_token")
-    else
-      output=$(npc --profile "$PROFILE" iam project list --parent-id "$PARENT_ID" --format yaml)
-    fi
+    rid = None
+    profile = "prod-sa"
+    seen = set()
+    i = 2
+    while i < len(args):
+        arg = args[i]
+        if arg == "-n":
+            if "id" in seen:
+                error_exit("Duplicate '-n' argument.")
+            if i + 1 >= len(args):
+                error_exit("'-n' requires a value.")
+            rid = args[i + 1]
+            seen.add("id")
+            i += 2
+        elif arg == "--profile":
+            if "profile" in seen:
+                error_exit("Duplicate '--profile' argument.")
+            if i + 1 >= len(args):
+                error_exit("'--profile' requires a value.")
+            profile = args[i + 1]
+            seen.add("profile")
+            i += 2
+        else:
+            error_exit(f"Unrecognized argument '{arg}'.")
 
-    echo "$output" | yq -r '.items[]?.metadata.id' | while read -r project_id; do
-      list_clusters_for_project "$project_id"
-    done
+    if rid is None:
+        error_exit("Missing required '-n <project-id|tenant-id>' argument.")
 
-    page_token=$(echo "$output" | yq -r '.next_page_token // empty')
-    [[ -z "$page_token" ]] && break
-  done
+    if rid.startswith("project-"):
+        id_type = "project"
+    elif rid.startswith("tenant-"):
+        id_type = "tenant"
+    else:
+        error_exit("ID must start with 'project-' or 'tenant-'.")
 
-elif [[ "$PARENT_ID" =~ ^project- ]]; then
-  list_clusters_for_project "$PARENT_ID"
+    return rid, profile, id_type
 
-else
-  echo "Invalid ID provided. Must begin with 'tenant-' or 'project-'"
-  usage
-  exit 1
-fi
 
+def npc_list_projects(profile, tenant_id, page_token=None):
+    cmd = [
+        "npc",
+        "--profile",
+        profile,
+        "--format",
+        "json",
+        "iam",
+        "project",
+        "list",
+        "--parent-id",
+        tenant_id,
+    ]
+    if page_token:
+        cmd += ["--page-token", page_token]
+    return run_npc_cmd(cmd)
+
+
+def npc_list_clusters(profile, project_id, page_token=None):
+    cmd = [
+        "npc",
+        "--profile",
+        profile,
+        "--format",
+        "json",
+        "mk8s",
+        "cluster",
+        "list",
+        "--parent-id",
+        project_id,
+    ]
+    if page_token:
+        cmd += ["--page-token", page_token]
+    return run_npc_cmd(cmd)
+
+
+def list_clusters_for_project(profile, project_id):
+    region = region_from_id(project_id)
+    clusters = []
+    token = None
+    while True:
+        out = npc_list_clusters(profile, project_id, token)
+        try:
+            data = json.loads(out)
+        except json.JSONDecodeError:
+            error_exit("Failed to parse npc output as JSON.")
+        for item in data.get("items", []):
+            meta = item.get("metadata", {})
+            status = item.get("status", {})
+            clusters.append([
+                meta.get("name", ""),
+                meta.get("id", ""),
+                status.get("state", ""),
+                project_id,
+                region
+            ])
+        token = data.get("next_page_token")
+        if not token:
+            break
+    return clusters
+
+
+def list_clusters(profile, rid, id_type):
+    rows = []
+    if id_type == "project":
+        rows.extend(list_clusters_for_project(profile, rid))
+    else:
+        token = None
+        project_ids = []
+        while True:
+            out = npc_list_projects(profile, rid, token)
+            try:
+                data = json.loads(out)
+            except json.JSONDecodeError:
+                error_exit("Failed to parse npc output as JSON.")
+            for item in data.get("items", []):
+                pid = item.get("metadata", {}).get("id")
+                if pid:
+                    project_ids.append(pid)
+            token = data.get("next_page_token")
+            if not token:
+                break
+        for pid in project_ids:
+            rows.extend(list_clusters_for_project(profile, pid))
+    return rows
+
+
+def print_table(rows):
+    if not rows:
+        print("No clusters found.")
+        return
+
+    header = ["CLUSTER_NAME", "CLUSTER_ID", "STATE", "PROJECT-ID", "REGION"]
+    widths = [
+        max(len(str(cell)) for cell in [header[i]] + [r[i] for r in rows])
+        for i in range(len(header))
+    ]
+    fmt = "  ".join("{:<" + str(w) + "}" for w in widths)
+    print(fmt.format(*header))
+    for row in rows:
+        print(fmt.format(*row))
+
+
+def main():
+    rid, profile, id_type = parse_args(sys.argv[1:])
+    rows = list_clusters(profile, rid, id_type)
+    print_table(rows)
+
+
+if __name__ == "__main__":
+    main()
